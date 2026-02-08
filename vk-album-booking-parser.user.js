@@ -5,8 +5,8 @@
 // @description  Открывает фотки альбома в модалке, парсит #pv_comments_list и ищет "бронь". Группирует по юзеру -> список фоток. Экспорт CSV.
 // @match        https://vk.com/album*
 // @grant        GM_addStyle
-// @downloadURL  https://raw.githubusercontent.com/<user>/<repo>/main/dist/vk-album-booking-parser.user.js
-// @updateURL    https://raw.githubusercontent.com/<user>/<repo>/main/dist/vk-album-booking-parser.user.js
+// @downloadURL  https://raw.githubusercontent.com/awaynell/vk-album-booking-parser/refs/heads/main/vk-album-booking-parser.user.js
+// @updateURL    https://raw.githubusercontent.com/awaynell/vk-album-booking-parser/refs/heads/main/vk-album-booking-parser.user.js
 // ==/UserScript==
 
 (function () {
