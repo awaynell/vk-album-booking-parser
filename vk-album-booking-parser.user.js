@@ -1,18 +1,16 @@
 // ==UserScript==
-// @name         VK Album booking parser
-// @namespace    vk-album-booking-dom
-// @version      1
-// @description  Открывает фотки альбома в модалке, парсит #pv_comments_list и ищет "бронь". Группирует по юзеру -> список фоток. Экспорт CSV.
+// @name         VK Album booking parser (by user, modal next)
+// @namespace    vk-album-booking-parser
+// @version      1.2.0
+// @description  Парсит комментарии с "бронь" в альбомах VK. Группирует: юзер -> список фото. Листает фото в модалке без закрытия. Экспорт CSV.
 // @match        https://vk.com/album*
 // @grant        GM_addStyle
-// @downloadURL  https://raw.githubusercontent.com/awaynell/vk-album-booking-parser/refs/heads/main/vk-album-booking-parser.user.js
-// @updateURL    https://raw.githubusercontent.com/awaynell/vk-album-booking-parser/refs/heads/main/vk-album-booking-parser.user.js
 // ==/UserScript==
 
 (function () {
   "use strict";
 
-  // -------------------- helpers --------------------
+  // -------------------- utils --------------------
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const norm = (s) =>
@@ -43,18 +41,6 @@
       .replaceAll("'", "&#039;");
   }
 
-  function downloadText(filename, text) {
-    const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
   async function waitFor(
     selector,
     { root = document, timeout = 15000, poll = 100 } = {}
@@ -68,19 +54,23 @@
     return null;
   }
 
-  function highlightThumb(anchorEl) {
-    try {
-      anchorEl.style.outline = "3px solid #4caf50";
-      anchorEl.style.outlineOffset = "2px";
-      anchorEl.style.borderRadius = "8px";
-    } catch {}
+  function downloadText(filename, text) {
+    const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   // -------------------- UI --------------------
   GM_addStyle(`
     #bron-ui {
       position: fixed; right: 16px; bottom: 16px; z-index: 999999;
-      width: 420px; max-height: 75vh; overflow: auto;
+      width: 440px; max-height: 75vh; overflow: auto;
       background: #111; color: #eee; border: 1px solid #333;
       border-radius: 12px; padding: 12px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
       box-shadow: 0 12px 40px rgba(0,0,0,.35);
@@ -100,19 +90,11 @@
       display: inline-block; padding: 2px 8px; border: 1px solid #333; border-radius: 999px;
       font-size: 12px; color: #bbb; margin-left: 6px;
     }
-    #bron-ui .photos {
-      display: flex; flex-wrap: wrap; gap: 6px;
-    }
+    #bron-ui .photos { display: flex; flex-wrap: wrap; gap: 6px; }
     #bron-ui .photos a {
-      border: 1px solid #2a2a2a;
-      border-radius: 999px;
-      padding: 2px 8px;
-      font-size: 12px;
-      display: inline-block;
-      max-width: 150px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      border: 1px solid #2a2a2a; border-radius: 999px; padding: 2px 8px;
+      font-size: 12px; display: inline-block; max-width: 170px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
   `);
 
@@ -121,8 +103,8 @@
   ui.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
       <div>
-        <div style="font-weight:600;">VK Album → “бронь”</div>
-        <div class="muted">Группировка: юзер → список фоток</div>
+        <div style="font-weight:600;">VK → бронь в альбоме</div>
+        <div class="muted">юзер → список фоток (листает в модалке)</div>
       </div>
       <div class="pill" id="bron-state">idle</div>
     </div>
@@ -150,21 +132,18 @@
   const setState = (s) => ($state.textContent = s);
   const log = (s) => ($log.textContent = s);
 
-  // -------------------- data model: user -> Set(photo_url) --------------------
+  // -------------------- data: user -> Set(photoUrl) --------------------
   let stopFlag = false;
   /** @type {Map<string, Set<string>>} */
   let userToPhotos = new Map();
 
   function toRows() {
-    // превращаем Map в массив для таблицы/CSV
     const rows = [];
-    for (const [user_url, photosSet] of userToPhotos.entries()) {
-      const photos = Array.from(photosSet);
-      // немного стабильности: сортируем
+    for (const [user_url, set] of userToPhotos.entries()) {
+      const photos = Array.from(set);
       photos.sort();
       rows.push({ user_url, photos });
     }
-    // сортируем юзеров по кол-ву фоток (по убыванию), потом по url
     rows.sort(
       (a, b) =>
         b.photos.length - a.photos.length ||
@@ -180,14 +159,11 @@
       $csv.disabled = true;
       return;
     }
-
     $csv.disabled = false;
 
     const shown = rows.slice(0, 150);
     $out.innerHTML = `
-      <div class="muted">Юзеров с бронью: ${
-        rows.length
-      } (в UI показываю первых ${shown.length})</div>
+      <div class="muted">Юзеров: ${rows.length}</div>
       <table>
         <thead><tr><th>Юзер</th><th>Фотки</th></tr></thead>
         <tbody>
@@ -195,7 +171,8 @@
             .map(
               (r) => `
             <tr>
-              <td><a href="${r.user_url}" target="_blank">${escapeHtml(
+              <td>
+                <a href="${r.user_url}" target="_blank">${escapeHtml(
                 r.user_url.replace("https://vk.com/", "vk.com/")
               )}</a>
                 <div class="muted">фото: ${r.photos.length}</div>
@@ -235,20 +212,12 @@
     const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
     const lines = [];
     lines.push([esc("user_url"), esc("photo_urls")].join(","));
-    for (const r of rows) {
-      // В одну ячейку складываем ссылки через "; "
+    for (const r of rows)
       lines.push([esc(r.user_url), esc(r.photos.join("; "))].join(","));
-    }
     return lines.join("\n");
   }
 
-  function addMatch(userUrl, photoUrl) {
-    if (!userUrl || !photoUrl) return;
-    if (!userToPhotos.has(userUrl)) userToPhotos.set(userUrl, new Set());
-    userToPhotos.get(userUrl).add(photoUrl);
-  }
-
-  // -------------------- album scanning --------------------
+  // -------------------- album load --------------------
   function collectPhotoAnchors() {
     const anchors = Array.from(
       document.querySelectorAll('a[href^="/photo"], a[href*="/photo-"]')
@@ -258,7 +227,7 @@
     return Array.from(map.values());
   }
 
-  async function scrollAlbumToLoad({ maxIdle = 14, stepDelay = 900 } = {}) {
+  async function scrollAlbumToLoad({ maxIdle = 12, stepDelay = 900 } = {}) {
     let last = 0;
     let idle = 0;
     while (idle < maxIdle && !stopFlag) {
@@ -266,10 +235,10 @@
       if (count > last) {
         last = count;
         idle = 0;
-        log(`Подгружаю фотки… найдено: ${count}`);
+        log(`Подгружаю превью… фоток видно: ${count}`);
       } else {
         idle++;
-        log(`Жду догрузку… (${idle}/${maxIdle}) фоток: ${count}`);
+        log(`Жду догрузку… (${idle}/${maxIdle}) фоток видно: ${count}`);
       }
       window.scrollTo(0, document.body.scrollHeight);
       await sleep(stepDelay);
@@ -278,55 +247,45 @@
     return collectPhotoAnchors();
   }
 
-  // -------------------- photoview parsing --------------------
-  function currentPhotoUrlFromModal() {
+  async function openPhotoByAnchor(a) {
+    a.scrollIntoView({ block: "center" });
+    await sleep(120);
+    a.click();
+  }
+
+  function closeModalIfOpen() {
+    const btn = document.querySelector(".pv_close_btn");
+    if (btn) btn.click();
+  }
+
+  // -------------------- modal helpers --------------------
+  function ensureModalOpen() {
+    return !!document.querySelector("#pv_box, .pv_box, .pv_photo_wrap");
+  }
+
+  function getModalCounter() {
+    const el = document.querySelector(".pv_counter");
+    const t = el?.textContent?.trim() || "";
+    const m = t.match(/(\d+)\s+из\s+(\d+)/i);
+    if (!m) return null;
+    return { index: Number(m[1]), total: Number(m[2]) };
+  }
+
+  function getModalPhotoId() {
     const likeWrap = document.querySelector(
       '.pv_narrow_column_wrap .like_wrap[class*="_like_photo-"]'
     );
-    if (likeWrap) {
-      const cls = Array.from(likeWrap.classList).find((c) =>
-        c.startsWith("_like_photo-")
-      );
-      if (cls) {
-        const id = cls.replace("_like_", ""); // "photo-211108273_457262851"
-        return `https://vk.com/${id}`;
-      }
-    }
-    return "";
+    if (!likeWrap) return "";
+    const cls = Array.from(likeWrap.classList).find((c) =>
+      c.startsWith("_like_photo-")
+    );
+    if (!cls) return "";
+    return cls.replace("_like_", ""); // "photo-211108273_457262841"
   }
 
-  function parseBronFromCurrentModal({ fallbackPhotoUrl = "" } = {}) {
-    const list = document.querySelector("#pv_comments_list");
-    if (!list) return 0;
-
-    const photoUrl =
-      currentPhotoUrlFromModal() || fallbackPhotoUrl || location.href;
-
-    let added = 0;
-
-    const replies = Array.from(list.querySelectorAll(".reply"));
-    for (const r of replies) {
-      const authorA = r.querySelector(".reply_author a.author, a.author[href]");
-      const textEl = r.querySelector(
-        ".reply_text .wall_reply_text, .reply_text, .wall_reply_text"
-      );
-      const text = textEl ? textEl.textContent.trim() : "";
-      if (!text) continue;
-
-      if (isBron(text)) {
-        const userUrl = absVkUrl(authorA?.getAttribute("href"));
-        if (!userUrl) continue;
-
-        // считаем "новое ли это"
-        if (!userToPhotos.has(userUrl)) userToPhotos.set(userUrl, new Set());
-        const set = userToPhotos.get(userUrl);
-        const before = set.size;
-        set.add(photoUrl);
-        if (set.size > before) added++;
-      }
-    }
-
-    return added;
+  function getModalPhotoUrl() {
+    const id = getModalPhotoId();
+    return id ? `https://vk.com/${id}` : "";
   }
 
   async function ensureCommentsLoaded() {
@@ -336,13 +295,13 @@
     if (!pv) return false;
     const list = await waitFor("#pv_comments_list", { timeout: 15000 });
     if (!list) return false;
-    await sleep(250);
+    await sleep(200);
     return true;
   }
 
   async function scrollCommentsColumnToLoadMore({
-    rounds = 12,
-    pause = 450,
+    rounds = 14,
+    pause = 420,
   } = {}) {
     const scroller =
       document.querySelector(
@@ -374,15 +333,106 @@
     }
   }
 
-  function closeModalIfOpen() {
-    const btn = document.querySelector(".pv_close_btn");
-    if (btn) btn.click();
+  function parseBronFromCurrentModal() {
+    const list = document.querySelector("#pv_comments_list");
+    if (!list) return 0;
+
+    const photoUrl = getModalPhotoUrl() || location.href;
+    let added = 0;
+
+    const replies = Array.from(list.querySelectorAll(".reply"));
+    for (const r of replies) {
+      const authorA = r.querySelector(".reply_author a.author, a.author[href]");
+      const textEl = r.querySelector(
+        ".reply_text .wall_reply_text, .reply_text, .wall_reply_text"
+      );
+      const text = textEl ? textEl.textContent.trim() : "";
+      if (!text) continue;
+
+      if (!isBron(text)) continue;
+
+      const fromId = authorA?.getAttribute("data-from-id");
+      const href = authorA?.getAttribute("href") || "";
+      const userUrl = fromId ? `https://vk.com/id${fromId}` : absVkUrl(href);
+      if (!userUrl) continue;
+
+      if (!userToPhotos.has(userUrl)) userToPhotos.set(userUrl, new Set());
+      const set = userToPhotos.get(userUrl);
+      const before = set.size;
+      set.add(photoUrl);
+      if (set.size > before) added++;
+    }
+
+    return added;
   }
 
-  async function openPhotoByAnchor(a) {
-    a.scrollIntoView({ block: "center" });
-    await sleep(120);
-    a.click();
+  function clickNextInModal() {
+    // 1) direct Photoview.show (самый надёжный)
+    try {
+      if (
+        typeof window.Photoview?.show === "function" &&
+        typeof window.cur?.pvIndex === "number"
+      ) {
+        window.cur.pvClicked = true;
+        window.Photoview.show(false, window.cur.pvIndex + 1, null);
+        return true;
+      }
+    } catch {}
+
+    // 2) call onmousedown on button
+    const btn = document.querySelector("#pv_nav_btn_right");
+    if (!btn) return false;
+
+    try {
+      if (typeof btn.onmousedown === "function") {
+        btn.onmousedown({
+          type: "mousedown",
+          button: 0,
+          which: 1,
+          target: btn,
+        });
+        return true;
+      }
+    } catch {}
+
+    // 3) dispatch simple events (no MouseEvent(view))
+    try {
+      btn.dispatchEvent(
+        new Event("mousedown", { bubbles: true, cancelable: true })
+      );
+      btn.dispatchEvent(
+        new Event("mouseup", { bubbles: true, cancelable: true })
+      );
+      btn.dispatchEvent(
+        new Event("click", { bubbles: true, cancelable: true })
+      );
+      return true;
+    } catch {}
+
+    // 4) fallback click
+    try {
+      btn.click();
+      return true;
+    } catch {}
+
+    return false;
+  }
+
+  async function waitPhotoChange(prevId, prevIndex, { timeout = 15000 } = {}) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeout) {
+      const id = getModalPhotoId();
+      const c = getModalCounter();
+      const idx = c?.index ?? null;
+
+      const idChanged = id && id !== prevId;
+      const idxChanged =
+        prevIndex != null && idx != null ? idx !== prevIndex : false;
+
+      if (idChanged || idxChanged) return { id, index: idx };
+      await sleep(80);
+    }
+    return null;
   }
 
   // -------------------- main --------------------
@@ -395,57 +445,79 @@
     $start.disabled = true;
     $stop.disabled = false;
 
-    log("Скроллю альбом, чтобы подгрузить фотки…");
-    const anchors = await scrollAlbumToLoad();
-    const photos = anchors
-      .map((a) => ({ a, href: absVkUrl(a.getAttribute("href")) }))
-      .filter((x) => /https:\/\/vk\.com\/photo-?\d+_\d+/.test(x.href));
+    log("Готовлю альбом (догружаю превью)…");
+    await scrollAlbumToLoad();
 
-    if (!photos.length) {
+    const first = collectPhotoAnchors()[0];
+    if (!first) {
       setState("idle");
-      log("Не нашёл фотки. Возможно, поменялась верстка альбома.");
+      log("Не нашёл ни одной фотки в альбоме.");
+      $start.disabled = false;
+      $stop.disabled = true;
+      return;
+    }
+
+    closeModalIfOpen();
+    await sleep(200);
+
+    log("Открываю первую фотку…");
+    await openPhotoByAnchor(first);
+
+    const ok = await ensureCommentsLoaded();
+    if (!ok || !ensureModalOpen()) {
+      setState("idle");
+      log("Не смог открыть модалку/комменты (возможно, VK изменил верстку).");
       $start.disabled = false;
       $stop.disabled = true;
       return;
     }
 
     setState("working");
-    log(`Фоток найдено: ${photos.length}. Начинаю проверку…`);
 
-    for (let i = 0; i < photos.length && !stopFlag; i++) {
-      const { a, href } = photos[i];
-      log(`(${i + 1}/${photos.length}) Открываю фото…`);
+    let counter = getModalCounter();
+    const total = counter?.total ?? null;
 
-      closeModalIfOpen();
-      await sleep(200);
+    let prevId = getModalPhotoId();
 
-      await openPhotoByAnchor(a);
+    const maxSteps = total ?? 100000;
 
-      const ok = await ensureCommentsLoaded();
-      if (!ok) {
-        closeModalIfOpen();
-        await sleep(150);
-        continue;
-      }
+    for (let step = 1; step <= maxSteps && !stopFlag; step++) {
+      counter = getModalCounter();
+      const idx = counter?.index ?? step;
+      const tot = counter?.total ?? total ?? "?";
 
+      await ensureCommentsLoaded();
       await scrollCommentsColumnToLoadMore({ rounds: 14, pause: 420 });
 
-      const added = parseBronFromCurrentModal({ fallbackPhotoUrl: href });
-
+      const added = parseBronFromCurrentModal();
       if (added > 0) {
-        log(
-          `(${i + 1}/${
-            photos.length
-          }) 🔥 Бронь найдена: +${added} (обновляю таблицу)`
-        );
-        renderTable(); // сразу обновили UI
-        highlightThumb(a); // опционально: подсветили превью
+        log(`(${idx}/${tot}) 🔥 Бронь найдена: +${added}`);
+        renderTable();
       } else {
-        log(`(${i + 1}/${photos.length}) Брони нет.`);
+        log(`(${idx}/${tot}) Брони нет.`);
       }
 
-      closeModalIfOpen();
-      await sleep(250);
+      // если последняя — выходим
+      if (counter && counter.total && counter.index >= counter.total) break;
+
+      const prevIndex = counter?.index ?? null;
+
+      const clicked = clickNextInModal();
+      if (!clicked) {
+        log("Не получилось нажать “вперёд” — останавливаюсь.");
+        break;
+      }
+
+      const changed = await waitPhotoChange(prevId, prevIndex, {
+        timeout: 15000,
+      });
+      if (!changed) {
+        log("Не дождался переключения на следующую фотку — останавливаюсь.");
+        break;
+      }
+
+      prevId = changed.id || prevId;
+      await sleep(150);
     }
 
     setState(stopFlag ? "stopped" : "done");
@@ -455,13 +527,15 @@
       0
     );
     log(`Готово. Юзеров: ${rowsCount}, всего фото-ссылок: ${totalLinks}`);
-    renderTable();
 
+    renderTable();
     $start.disabled = false;
     $stop.disabled = true;
+
+    // модалку НЕ закрываем — по твоей просьбе
   }
 
-  // -------------------- UI handlers --------------------
+  // -------------------- handlers --------------------
   $start.addEventListener("click", () => {
     run().catch((e) => {
       console.error(e);
