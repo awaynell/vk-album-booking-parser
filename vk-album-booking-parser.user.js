@@ -69,7 +69,7 @@
   // -------------------- UI --------------------
   GM_addStyle(`
     #bron-ui {
-      position: fixed; right: 16px; bottom: 16px; z-index: 999999;
+      position: fixed; left: 16px; bottom: 16px; z-index: 999999;
       width: 440px; max-height: 75vh; overflow: auto;
       background: #111; color: #eee; border: 1px solid #333;
       border-radius: 12px; padding: 12px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
