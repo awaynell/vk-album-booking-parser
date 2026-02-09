@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VK Album booking parser (by user, modal next)
 // @namespace    vk-album-booking-parser
-// @version      1.2.1
+// @version      1.2.2
 // @description  Парсит комментарии с "бронь" в альбомах VK. Группирует: юзер -> список фото. Листает фото в модалке без закрытия. Экспорт CSV.
 // @match        https://vk.com/album*
 // @grant        GM_addStyle
@@ -57,7 +57,10 @@
   }
 
   function downloadText(filename, text) {
-    const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+    // UTF-8 BOM чтобы Excel нормально открыл кириллицу/юникод
+    const BOM = "\uFEFF";
+    const blob = new Blob([BOM + text], { type: "text/csv;charset=utf-8" });
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -211,12 +214,26 @@
 
   function exportCSV() {
     const rows = toRows();
-    const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+
+    // Excel-friendly: ; как разделитель столбцов
+    const SEP = ";";
+    const CRLF = "\r\n";
+
+    // Кавычим всё, внутри кавычек удваиваем "
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+
+    // Вариант A: все ссылки в одной ячейке через перевод строки (удобнее читать в Excel)
+    // Excel покажет это как переносы строк внутри ячейки (если включить Wrap Text)
+    const photosCell = (photos) => photos.join(CRLF);
+
     const lines = [];
-    lines.push([esc("user_url"), esc("photo_urls")].join(","));
-    for (const r of rows)
-      lines.push([esc(r.user_url), esc(r.photos.join("; "))].join(","));
-    return lines.join("\n");
+    lines.push([esc("user_url"), esc("photo_urls")].join(SEP));
+
+    for (const r of rows) {
+      lines.push([esc(r.user_url), esc(photosCell(r.photos))].join(SEP));
+    }
+
+    return lines.join(CRLF);
   }
 
   // -------------------- album load --------------------
