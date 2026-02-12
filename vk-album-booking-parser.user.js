@@ -413,9 +413,7 @@
         ".reply_text .wall_reply_text, .reply_text, .wall_reply_text"
       );
       const text = textEl ? textEl.textContent.trim() : "";
-      if (!text) continue;
-
-      if (!isBron(text)) continue;
+      const isBronWord = text ? isBron(text) : false; // kept for future use
 
       const fromId = authorA?.getAttribute("data-from-id");
       const href = authorA?.getAttribute("href") || "";
