@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VK Album booking parser (by user, modal next)
 // @namespace    vk-album-booking-parser
-// @version      1.2.2
+// @version      1.3.0
 // @description  Парсит комментарии с "бронь" в альбомах VK. Группирует: юзер -> список фото. Листает фото в модалке без закрытия. Экспорт CSV.
 // @match        https://vk.com/album*
 // @grant        GM_addStyle
@@ -141,6 +141,8 @@
   let stopFlag = false;
   /** @type {Map<string, Set<string>>} */
   let userToPhotos = new Map();
+  /** @type {Set<string>} */
+  let noBronPhotos = new Set(); // фотки, где НЕ найдено слово "бронь"
 
   function toRows() {
     const rows = [];
@@ -159,78 +161,123 @@
 
   function renderTable() {
     const rows = toRows();
-    if (!rows.length) {
-      $out.innerHTML = `<div class="muted">Пока нет совпадений.</div>`;
-      $csv.disabled = true;
-      return;
-    }
-    $csv.disabled = false;
+    const noBron = Array.from(noBronPhotos);
+    noBron.sort();
 
-    const shown = rows.slice(0, 150);
+    const usersCount = rows.length;
+    const noBronCount = noBron.length;
+
+    const shownUsers = rows.slice(0, 150);
+    const shownNoBron = noBron.slice(0, 80);
+
+    // кнопка CSV активна, если есть хоть что-то
+    $csv.disabled = usersCount === 0 && noBronCount === 0;
+
+    const usersTableHtml =
+      usersCount === 0
+        ? `<div class="muted">Пока нет совпадений “бронь”.</div>`
+        : `
+          <div class="muted">Юзеров с бронью: ${usersCount}</div>
+          <table>
+            <thead><tr><th>Юзер</th><th>Фотки</th></tr></thead>
+            <tbody>
+              ${shownUsers
+                .map(
+                  (r) => `
+                <tr>
+                  <td>
+                    <a href="${r.user_url}" target="_blank">${escapeHtml(
+                    r.user_url.replace("https://vk.com/", "vk.com/")
+                  )}</a>
+                    <div class="muted">фото: ${r.photos.length}</div>
+                  </td>
+                  <td>
+                    <div class="photos">
+                      ${r.photos
+                        .slice(0, 24)
+                        .map(
+                          (p) => `
+                        <a href="${p}" target="_blank">${escapeHtml(
+                            p.replace("https://vk.com/", "vk.com/")
+                          )}</a>
+                      `
+                        )
+                        .join("")}
+                      ${
+                        r.photos.length > 24
+                          ? `<span class="muted">+${
+                              r.photos.length - 24
+                            } ещё</span>`
+                          : ``
+                      }
+                    </div>
+                  </td>
+                </tr>
+              `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        `;
+
+    const noBronHtml =
+      noBronCount === 0
+        ? `<div class="muted">Фоток без “бронь” пока нет.</div>`
+        : `
+          <div class="muted" style="margin-top:10px;">
+            Фоток без “бронь”: ${noBronCount}
+          </div>
+          <div class="photos" style="margin-top:6px;">
+            ${shownNoBron
+              .map(
+                (p) => `
+              <a href="${p}" target="_blank">${escapeHtml(
+                  p.replace("https://vk.com/", "vk.com/")
+                )}</a>
+            `
+              )
+              .join("")}
+            ${
+              noBronCount > shownNoBron.length
+                ? `<span class="muted">+${
+                    noBronCount - shownNoBron.length
+                  } ещё</span>`
+                : ``
+            }
+          </div>
+        `;
+
     $out.innerHTML = `
-      <div class="muted">Юзеров: ${rows.length}</div>
-      <table>
-        <thead><tr><th>Юзер</th><th>Фотки</th></tr></thead>
-        <tbody>
-          ${shown
-            .map(
-              (r) => `
-            <tr>
-              <td>
-                <a href="${r.user_url}" target="_blank">${escapeHtml(
-                r.user_url.replace("https://vk.com/", "vk.com/")
-              )}</a>
-                <div class="muted">фото: ${r.photos.length}</div>
-              </td>
-              <td>
-                <div class="photos">
-                  ${r.photos
-                    .slice(0, 24)
-                    .map(
-                      (p) => `
-                    <a href="${p}" target="_blank">${escapeHtml(
-                        p.replace("https://vk.com/", "vk.com/")
-                      )}</a>
-                  `
-                    )
-                    .join("")}
-                  ${
-                    r.photos.length > 24
-                      ? `<span class="muted">+${
-                          r.photos.length - 24
-                        } ещё</span>`
-                      : ``
-                  }
-                </div>
-              </td>
-            </tr>
-          `
-            )
-            .join("")}
-        </tbody>
-      </table>
+      ${usersTableHtml}
+      <div style="height:10px;"></div>
+      <div style="border-top:1px solid #2a2a2a; padding-top:10px;"></div>
+      ${noBronHtml}
     `;
   }
 
   function exportCSV() {
     const rows = toRows();
+    const noBron = Array.from(noBronPhotos);
+    noBron.sort();
 
-    // Excel-friendly: ; как разделитель столбцов
     const SEP = ";";
     const CRLF = "\r\n";
-
-    // Кавычим всё, внутри кавычек удваиваем "
     const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-
-    // Вариант A: все ссылки в одной ячейке через перевод строки (удобнее читать в Excel)
-    // Excel покажет это как переносы строк внутри ячейки (если включить Wrap Text)
-    const photosCell = (photos) => photos.join(CRLF);
+    const photosCell = (photos) => (photos || []).join(CRLF);
 
     const lines = [];
-    lines.push([esc("user_url"), esc("photo_urls")].join(SEP));
 
+    // --- секция 1: бронь ---
+    lines.push([esc("user_url"), esc("photo_urls")].join(SEP));
     for (const r of rows) {
       lines.push([esc(r.user_url), esc(photosCell(r.photos))].join(SEP));
+    }
+
+    // --- секция 2: без брони ---
+    lines.push(""); // пустая строка-разделитель
+    lines.push([esc("no_bron_photo_url")].join(SEP));
+    for (const p of noBron) {
+      lines.push([esc(p)].join(SEP));
     }
 
     return lines.join(CRLF);
@@ -458,6 +505,7 @@
   async function run() {
     stopFlag = false;
     userToPhotos = new Map();
+    noBronPhotos = new Set();
     renderTable();
 
     setState("loading");
@@ -508,12 +556,21 @@
       await ensureCommentsLoaded();
       await scrollCommentsColumnToLoadMore({ rounds: 14, pause: 420 });
 
+      const currentPhotoUrl = getModalPhotoUrl() || location.href;
+
       const added = parseBronFromCurrentModal();
+
       if (added > 0) {
+        // если бронь найдена — на всякий случай удалим из "без брони"
+        noBronPhotos.delete(currentPhotoUrl);
+
         log(`(${idx}/${tot}) 🔥 Бронь найдена: +${added}`);
         renderTable();
       } else {
+        noBronPhotos.add(currentPhotoUrl);
+
         log(`(${idx}/${tot}) Брони нет.`);
+        renderTable();
       }
 
       // если последняя — выходим
@@ -576,6 +633,7 @@
 
   $clear.addEventListener("click", () => {
     userToPhotos = new Map();
+    noBronPhotos = new Set();
     renderTable();
     setState("idle");
     log("Очищено.");
