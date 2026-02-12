@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VK Album booking parser (by user, modal next)
 // @namespace    vk-album-booking-parser
-// @version      1.3.0
+// @version      1.3.5
 // @description  Парсит комментарии с "бронь" в альбомах VK. Группирует: юзер -> список фото. Листает фото в модалке без закрытия. Экспорт CSV.
 // @match        https://vk.com/album*
 // @grant        GM_addStyle
